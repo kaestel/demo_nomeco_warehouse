@@ -1,4 +1,9 @@
+
+/*u.js*/
 var u, Util = u = new function() {}
+u.version = 2;
+
+/*u-debug.js*/
 Util.testURL = function(url) {
 	return true;
 	return url.match(/http\:\/\/mkn\.|http\:\/\/w\.|\.local/i);
@@ -81,6 +86,8 @@ Util.bug = function(target, message) {
 		u.ge("debug_"+target).innerHTML += message+"<br>";
 	}
 }
+
+/*u-dom.js*/
 Util.ge = function(id, target) {
 	var e, i, regexp, t;
 	t = target ? target : document;
@@ -106,6 +113,60 @@ Util.ges = function(id, target) {
 		}
 	}
 	return elements.length ? elements : t.getElementsByTagName(id);
+}
+Util.gs = function(e, direction) {
+	var node_type = e.nodeType;
+	var ready = false;
+	var prev_node = false
+	for(var i = 0; node = e.parentNode.childNodes[i]; i++) {
+		if(node.nodeType == node_type) {
+			if(ready) {
+				return node;
+			}
+			if(node == e) {
+				if(direction == "next") {
+					ready = true;
+				}
+				else {
+					return prev_node;
+				}
+			}
+			else {
+				prev_node = node;
+			}
+		}
+	}
+	return false;
+}
+Util.ae = function(e, node_type, attributes) {
+	var node = e.appendChild(document.createElement(node_type));
+	if(attributes) {
+		if(typeof(attributes) == "object") {
+			for(attribute in attributes) {
+				node.setAttribute(attribute, attributes[attribute]);
+			}
+		}
+		else {
+			u.addClass(node, attributes)
+		}
+	}
+	node.e = e;
+	return node;
+}
+Util.ie = function(e, node_type, attributes) {
+	var node = e.insertBefore(document.createElement(node_type), e.firstChild);
+	if(attributes) {
+		if(typeof(attributes) == "object") {
+			for(attribute in attributes) {
+				node.setAttribute(attribute, attributes[attribute]);
+			}
+		}
+		else {
+			u.addClass(node, attributes)
+		}
+	}
+	node.e = e;
+	return node;
 }
 Util.getIJ = function(e, id) {
 	var regexp = new RegExp(id + ":[?=\\w/\\#~:.?+=?&%@!\\-]*");
@@ -142,8 +203,9 @@ Util.wrapElement = function(e, wrap) {
 	wrap.appendChild(e);
 	return wrap;
 }
+
+/*u-events.js*/
 Util.Events = u.e = new function() {
-	// auto-choose default event type
 	this.event_pref = typeof(document.ontouchmove) == "undefined" ? "mouse" : "touch";
 	this.kill = function(event) {
 		if(event) {
@@ -152,13 +214,22 @@ Util.Events = u.e = new function() {
 		}
 	}
 	this.addEvent = function(e, type, action) {
-		if(!document.all) {
+		try {
 			e.addEventListener(type, action, false);
+		}
+		catch(exception) {
+			if(document.all) {
+			}
+			else {
+				u.bug("exception:" + e + "," + type + ":" + exception);
+			}
 		}
 	}
 	this.removeEvent = function(e, type, action) {
-		if(!document.all) {
+		try {
 			e.removeEventListener(type, action, false);
+		}
+		catch(exception) {
 		}
 	}
 	this.onStart = this.onDown = function(e, action) {
@@ -174,6 +245,18 @@ Util.Events = u.e = new function() {
 		u.e.addEvent(e, "webkitTransitionEnd", action);
 		u.e.addEvent(e, "transitionend", action);
 	}
+	this.transitionEnded = function(e, action) {
+		u.e.removeEvent(e, "webkitTransitionEnd", action);
+		u.e.removeEvent(e, "transitionend", action);
+	}
+	this.onAnimationEnd = function(e, action) {
+		u.e.addEvent(e, "webkitAnimationEnd", action);
+		u.e.addEvent(e, "animationend", action);
+	}
+	this.animationEnded = function(e, action) {
+		u.e.removeEvent(e, "webkitAnimationEnd", action);
+		u.e.removeEvent(e, "animationend", action);
+	}
 	this.transform = function(e, x, y) {
 		if(typeof(e.style.MozTransition) != "undefined" || typeof(e.style.webkitTransition) != "undefined") {
 			e.style.MozTransform = "translate("+x+"px, "+y+"px)";
@@ -183,6 +266,7 @@ Util.Events = u.e = new function() {
 		}
 		else {
 			e.style.position = "absolute";
+			u.bug("duration:" + e.duration);
 			if(!e.duration) {
 				e.style.left = x+"px";
 				e.style.top = y+"px";
@@ -217,7 +301,6 @@ Util.Events = u.e = new function() {
 					}
 					else {
 						e.distance_x = e.element_x - e.end_x;
-	//					u.bug("right3:" + this.offsetLeft + "->" +this.end_x + "=" + this.distance_x)
 					}
 				}
 				else {
@@ -295,6 +378,8 @@ Util.Events = u.e = new function() {
 		return true;
 	}
 	this.resetEvents = function(e) {
+		u.t.resetTimer(e.t_held);
+		u.t.resetTimer(e.t_clicked);
 		this.removeEvent(e, "mouseup", this._dblclicked);
 		this.removeEvent(e, "touchend", this._dblclicked);
 		this.removeEvent(e, "mousemove", this._inputClickMove);
@@ -355,21 +440,24 @@ Util.Events = u.e = new function() {
 		u.e.onStart(e, this._inputStart);
 	}
 	this._dblclicked = function(event) {
-		u.t.resetTimer(this.t_held);
-		if(u.t.valid(this.t_clicked)) {
-			u.t.resetTimer(this.t_clicked);
+		if(u.t.valid(this.t_clicked) && event) {
 			u.e.resetEvents(this);
 			if(typeof(this.dblclicked) == "function") {
 				this.dblclicked(event);
 			}
 			return;
 		}
-		else if(!this.dblclick && !this.hold) {
+		else if(!this.dblclick) {
 			this._clicked = u.e._clicked;
 			this._clicked(event);
 		}
+		else if(!event) {
+			this._clicked = u.e._clicked;
+			this._clicked(this.event_var);
+		}
 		else {
-			this.t_clicked = u.t.setTimer(this, u.e._clicked, 400);
+			u.e.resetEvents(this);
+			this.t_clicked = u.t.setTimer(this, u.e._dblclicked, 400);
 		}
 	}
 	this.drag = function(e, target, strict, snapback, process_time) {
@@ -397,8 +485,6 @@ Util.Events = u.e = new function() {
 	}
 	this._pick = function(event) {
 	    u.e.kill(event);
-		u.t.resetTimer(this.t_held);
-		u.t.resetTimer(this.t_clicked);
 		this.move_timestamp = new Date().getTime();
 		this.vertical = (this.end_drag_x - this.start_drag_x == this.offsetWidth);
 		this.horisontal = (this.end_drag_y - this.start_drag_y == this.offsetHeight);
@@ -593,31 +679,28 @@ Util.Events = u.e = new function() {
 		}
 	}
 }
-Util.XMLRequest = new Array();
+
+/*u-xmlrequest.js*/
 Util.createRequestObject = function() {
 	var request_object = false;
-	// w3c
 		try {
 			request_object = new XMLHttpRequest();
 		}
 		catch(e){
 			request_object = new ActiveXObject("Microsoft.XMLHTTP");
 		}
-	// windows activeX object
 	return typeof(request_object.send) == 'undefined' ? false : request_object;
 }
 Util.XMLRequest = function(url, node, parameters, async, method) {
-	parameters = parameters ? u.formObjectToString(parameters) : "";
+	parameters = parameters ? parameters : "";
 	async = async ? async : true;
 	method = method ? method : "POST";
 	var XMLRequest = new Object();
-	// get request object, and verify it
 	XMLRequest.Http = this.createRequestObject();
 	if(!XMLRequest.Http) {
 		node.XMLResponse(u.validateResponse(false, false));
 		return;
 	}
-	// listen for async request state change
 	if(async) {
 		XMLRequest.Http.node = node ? node : Util;
 		XMLRequest.Http.onreadystatechange = function() {
@@ -631,7 +714,6 @@ Util.XMLRequest = function(url, node, parameters, async, method) {
 			}
 		}
 	}
-	// perform request
 	try {
 		XMLRequest.Http.open(method, url, async);
 		XMLRequest.Http.setRequestHeader("Content-Type","application/x-www-form-urlencoded");
@@ -674,90 +756,12 @@ Util.validateResponse = function(request, state){
 	}
 	return e;
 }
-Util.Ajax = new Object();
-Util.Ajax.requests = new Array();
-Util.Ajax.send = function(url, notify, object, parameters, async, type) {
-	// set request id
-	var id = this.requests.length;
-	this.requests[id] = new Object();
-	// save request parameters
-	this.requests[id].url = url;
-	this.requests[id].notifier = notify;
-	this.requests[id].object = (typeof(object) != "undefined" ? object : window);
-	this.requests[id].parameters = (typeof(parameters) != "undefined" ? parameters : "");
-	this.requests[id].async = (typeof(async) != "undefined" ? async : true);
-	this.requests[id].type = (typeof(type) == "string" ? type : "POST");
-	// get request object, and verify it
-	this.requests[id].xmlHttp = u.createRequestObject();
-	if(!this.requests[id].xmlHttp || typeof(this.requests[id].xmlHttp.send) == 'undefined') {
-		this.responder(id, false);
-		return;
-	}
-	this.requests[id].xmlHttp.open(this.requests[id].type, this.requests[id].url, this.requests[id].async);
-	this.requests[id].xmlHttp.setRequestHeader("Content-Type","application/x-www-form-urlencoded");
-	try {
-		this.requests[id].xmlHttp.send(parameters);
-	}
-	catch(e) {
-		this.responder(id, false);
-		return;
-	}
-	// If async initiate onreadystatechange
-	if(this.requests[id].async) {
-		this.requests[id].xmlHttp.onreadystatechange = function() {
-			if(Util.Ajax.requests[id].xmlHttp.readyState == 4) {
-				Util.Ajax.responder(id, true);
-			}
-		}
-	}
-	else {
-		Util.Ajax.responder(id, true);
-	}
-	return;
-}
-Util.Ajax.responder = function(id, state) {
-	var response_object, response;
-	// get respond-to object and free the ressource
-	response_object = this.requests[id].object;
-	response_object.exe = this.requests[id].notifier;
-	this.requests[id].object = null;
-	this.requests[id].notifier = null;
-	// if request could not be executed
-	if(!state) {
-		response_object.exe(false);
-	}
-	else {
-		try {
-			this.requests[id].xmlHttp.status;
-			if(this.requests[id].xmlHttp.status == 200) {
-				this.requests[id].status = this.requests[id].xmlHttp.status;
-				this.requests[id].statusText = this.requests[id].xmlHttp.statusText;
-				this.requests[id].result = this.requests[id].xmlHttp.responseXML;
-				this.requests[id].resultText = this.requests[id].xmlHttp.responseText;
-				response_object.exe(u.validateResponse(this.requests[id].xmlHttp, true));
-				this.requests[id].xmlHttp = null;
-				response = this.requests[id];
-			}
-			else {
-				response_object.exe(false);
-			}
-		}
-		catch(e) {
-			Util.debug("faila:" + e)
-			if(this.requests[id]) {
-				response_object.exe(false);
-			}
-		}
-	}
-	// reset request
-	Util.Ajax.requests[id] = null;
-}
+
+/*u-timer.js*/
 Util.Timer = u.t = new function() {
-	// actions to be preformed on onTimeout
 	this.actions = new Array();
 	this.objects = new Array();
 	this.timers = new Array();
-	// Add new timer to object
 	this.setTimer = function(object, action, timeout) {
 		var id = this.actions.length;
 		this.actions[id] = action;
@@ -765,12 +769,10 @@ Util.Timer = u.t = new function() {
 		this.timers[id] = setTimeout("u.t.execute("+id+")", timeout);
 		return id;
 	}
-	// Reset timer
 	this.resetTimer = function(id) {
 		clearTimeout(this.timers[id]);
 		this.objects[id] = false;
 	}
-	// execute added function on onTimeout
 	this.execute = function(id) {
 		this.objects[id].exe = this.actions[id];
 		this.objects[id].exe();
@@ -783,6 +785,8 @@ Util.Timer = u.t = new function() {
 		return this.objects[id] ? true : false;
 	}
 }
+
+/*u-init.js*/
 Util.Objects = u.o = new Array();
 Util.init = function() {
 	var i, e, elements, ij_value;
@@ -795,28 +799,46 @@ Util.init = function() {
 			}
 		}
 	}
-	// enable mouse tracking
-	// u.tracePointer();
 }
 window.onload = u.init;
+
+/*i-content.js*/
 var total_height, start_top, column_height;
 var screen_type = "desktop";
 screen_type = (screen.width == 1920) ? "fullHD" : "desktop";
-if (screen_type == "desktop"){
-	//Desktop
+if(screen_type == "desktop") {
 	total_height = 246;
 	start_top = 114;
 	column_height = 20;
-}else{
-	//Full HD
+}
+else {
 	total_height = 491;
 	start_top = 230;
 	column_height = 30;
 }
 Util.weekdays = new Array("søndag", "mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag");
+Util.reposition = function() {
+	if(screen_type == "desktop") {
+		if(document.documentElement.clientHeight > 540) {
+			document.body.style.paddingTop = Math.round(document.documentElement.clientHeight - 540)/2 +"px";
+		}
+		else {
+			document.body.style.paddingTop = 0 +"px";
+		}
+	}
+	if(screen_type == "fullHD") {
+		if(document.documentElement.clientHeight > 1080) {
+			document.body.style.paddingTop = Math.round(document.documentElement.clientHeight - 1080)/2 +"px";
+		}
+		else {
+			document.body.style.paddingTop = 0 +"px";
+		}
+	}
+}
+window.onresize = Util.reposition;
 Util.Objects["page"] = new function() {
 	this.init = function(page) {
-		if (screen_type == "fullHD"){
+		if(screen_type == "fullHD"){
 			u.addClass(document.body, "fullHD");
 		}
 		if(navigator.userAgent.toLowerCase().match(/iphone/)) {
@@ -825,15 +847,30 @@ Util.Objects["page"] = new function() {
 				u.addClass(document.body, "standalone");
 			}
 		}
-		if (document.documentElement.clientHeight > 540 && document.documentElement.clientHeight < 1080) {
-			document.body.style.paddingTop = Math.round(document.documentElement.clientHeight - 540)/2 +"px";
-		}else{
-			document.body.style.paddingTop = 0 +"px";
+		if(screen_type == "desktop") {
+			if(document.documentElement.clientHeight > 540) {
+				document.body.style.paddingTop = Math.round(document.documentElement.clientHeight - 540)/2 +"px";
+			}
+			else {
+				document.body.style.paddingTop = 0 +"px";
+			}
+		}
+		if(screen_type == "fullHD") {
+			if(document.documentElement.clientHeight > 1080) {
+				document.body.style.paddingTop = Math.round(document.documentElement.clientHeight - 1080)/2 +"px";
+			}
+			else {
+				document.body.style.paddingTop = 0 +"px";
+			}
 		}
 		var header = u.ge("p", u.ge("header", page));
 		var weekday = u.weekdays[new Date().getDay()];
 		var date = new Date().getDate()+"."+(new Date().getMonth()+1)+"."+new Date().getFullYear();
 		header.innerHTML = "NOMECO "+weekday+" D. "+date;
+		page.picked = function(event) {
+			u.e.kill(event);
+		}
+		u.e.drag(page, page, true);
 	}
 }
 Util.Objects["clock"] = new function() {
@@ -853,13 +890,22 @@ Util.Objects["ticker"] = new function() {
 	this.init = function(ticker) {
 		ticker.p = u.ge("p", ticker);
 		ticker.set = function() {
+			var ticker, ticks, i;
 			this.p.style.left = this.offsetWidth + "px";
-			if(u.nomeco) {
+			if(u.nomeco && typeof(u.nomeco.ticker) == "string") {
 				u.XMLRequest(u.nomeco.ticker, this, false, false, "GET");
+			}
+			else if(u.nomeco && typeof(u.nomeco.ticker) == "object") {
+				ticks = "";
+				for(i = 0; ticker = u.nomeco.ticker[i]; i++) {
+					ticks += ticker + (i+1 < u.nomeco.ticker.length ? "<span>|</span>" : "");
+				}
+				this.p.innerHTML = ticks;
+				this.move();
 			}
 		}
 		ticker.XMLResponse = function(response) {
-			var ticks = response.innerHTML.replace(/\n/g, "<span>|</span>");
+			ticks = response.innerHTML.replace(/\n/g, "<span>|</span>");
 			this.p.innerHTML = ticks;
 			this.move();
 		}
@@ -880,14 +926,27 @@ Util.Objects["slide0102"] = new function() {
 	this.init = function(content) {
 		var start, done, handled, left
 		start = this.getPositions(u.ge("start", content));
-		done = this.getPositions(u.ge("done", content));
-		done.style.top = u.get_offset(u.get_height(parseInt(done.innerHTML)))-u.get_height(parseInt(start.innerHTML))+'px';
+		done = this.getPositions(u.ge("done", content), start);
 		handled = this.getPositions(u.ge("handled", content));
 		left = this.getPositions(u.ge("left", content));
 	}
-	this.getPositions = function (e){
-		e.style.top = u.get_offset(u.get_height(parseInt(e.innerHTML)))+'px';
-		e.style.paddingTop = u.get_height(parseInt(e.innerHTML))-column_height+'px';
+	this.getPositions = function(e, on){
+		var col_value = (isNaN(parseInt(e.innerHTML.replace(".", "")))) ? 0 : parseInt(e.innerHTML.replace(".", ""));
+		if (col_value == 0){
+			e.style.display = "none";
+			return e;
+		}
+		var ch = u.get_height(parseInt(e.innerHTML));
+		if(ch < column_height) {
+			ch = column_height;
+		}
+		if(on) {
+			e.style.top = u.get_offset(ch)-on.offsetHeight+'px';
+		}
+		else {
+			e.style.top = u.get_offset(ch)+'px';
+		}
+		e.style.paddingTop = ch-column_height+'px';
 		return e;
 	}
 }
@@ -907,8 +966,17 @@ Util.Objects["slide03"] = new function() {
 		ialt = this.getPositions(u.ge("ialt", e));
 	}
 	this.getPositions = function (e) {
-		e.style.top = (total_height-Math.round((parseInt(e.innerHTML.replace(".", ""))/25000)* total_height)+start_top)+'px';
-		e.style.paddingTop = Math.round((parseInt(e.innerHTML.replace(".", ""))/25000) * total_height)-column_height+'px';;
+		var col_value = (isNaN(parseInt(e.innerHTML.replace(".", "")))) ? 0 : parseInt(e.innerHTML.replace(".", ""));
+		if(col_value == 0){
+			e.style.display = "none";
+			return e;
+		}
+		var ch = Math.round(col_value/25000* total_height);	
+		if(ch < column_height) {
+			ch = column_height;
+		}
+		e.style.top = (total_height-ch+start_top)+'px';
+		e.style.paddingTop = ch-column_height+'px';
 		return e;
 	}
 }
@@ -922,10 +990,11 @@ Util.Objects["slide04"] = new function() {
 			}
 		}
 		e.view_width = u.ge("workers",e).offsetWidth - u.ge("stempel", e).offsetWidth-1;
-		e.worker_width = u.ges("worker", e)[0].offsetWidth;
+		e.worker_width = u.ges("worker", e)[0].offsetWidth+(screen_type == "desktop" ? 2 : 5);
 		e.workers_in_view = Math.floor(e.view_width / e.worker_width);
 		e.view_offset = u.ge("columnsw", e).offsetLeft;
 		e.views_required = Math.ceil(e.worker_width * u.ges("worker", e).length / e.view_width);
+		u.ge("columnsw", e).style.width = Math.ceil(e.worker_width * u.ges("worker", e).length)+"px";
 		e.pane = 0;
 		e.updateSchedule = function() {
 			u.t.resetTimer(this.e.timer);
@@ -941,6 +1010,13 @@ Util.Objects["slide04"] = new function() {
 		}
 	}
 }
+Util.validValue = function (t) {
+	var t_value = t
+	if(isNaN(t)){
+		t_value = 0;
+	}
+	return t_value;
+}
 Util.Objects["slide06"] = new function() {
 	this.init = function(e) {
 		var counts, lines, error_counts, errors, total_height, column_height, error_height, error, line_height, line, i, error_count;
@@ -948,13 +1024,13 @@ Util.Objects["slide06"] = new function() {
 			total_height = 213;
 			column_height = 108;
 			error_height = 10;
-			line_height = 20
+			line_height = 20;
 		}
 		else {
 			total_height = 432;
 			column_height = 215;
 			error_height = 20;
-			line_height = 30
+			line_height = 30;
 		}
 		e.diagram = u.ge("diagram", e);
 		e.diagram.e = e;
@@ -963,23 +1039,49 @@ Util.Objects["slide06"] = new function() {
 		error_counts = u.ges("error_count", e);
 		errors = u.ges("errors", e);
 		for(i = 0; line = lines[i]; i++) {
-			var line_h = Math.round((parseInt(line.innerHTML))/1000*column_height);
+			var non_value = u.validValue(parseInt(line.innerHTML.replace(".", "")))
+			var line_h = Math.round((parseInt(line.innerHTML.replace(".", "")))/1000*column_height);
 			if(line_h > line_height) {
 				line.style.paddingTop = line_h-line_height+'px';
 			}
 			else {
 				line_h = line_height;
 			}
-			counts[i].style.paddingTop = (total_height - line_h-line_height) + "px";
+			var extra_height = 0;
+			if(non_value == 0){
+				line.style.display = "none";
+				extra_height = 20;
+			}
+			counts[i].style.paddingTop = (total_height+extra_height - line_h-line_height) + "px";
 		}
 		for(i = 0; error_count = error_counts[i]; i++) {
 			with (error = errors[i]) {
 				error.style.height = Math.round(parseInt(error_count.innerHTML))*error_height+'px';
 			}
 		}
+		workers = u.ges("worker", e);
+		e.view_width = u.ge("view",e).offsetWidth;
+		e.worker_width = workers[0].offsetWidth+(screen_type == "desktop" ? 1 : 3);
+		e.workers_in_view = Math.floor(e.view_width / e.worker_width);
+		e.views_required = Math.ceil(e.worker_width * workers.length / e.view_width);
+		e.diagram.style.width = Math.ceil(e.worker_width * workers.length)+"px";
+		e.pane = 0;
+		e.updateSchedule = function() {
+			u.t.resetTimer(this.e.timer);
+			if(this.pane < this.views_required) {
+				this.diagram.style.left = -(this.pane * this.view_width) + "px";
+				this.e.timer = u.t.setTimer(this, this.updateSchedule, 7000);
+				this.pane++;
+			}
+			else {
+				this.pane = 0;
+				this.e.timer = u.t.setTimer(this, this.swipedLeft, 7000);
+			}
+		}
 	}
 }
-var content = new Array(1,2,3,4,5,6);
+
+/*i-carousel.js*/
 Util.Objects["carousel"] = new function() {
 	this.init = function(e) {
 		e.content = u.nomeco ? u.nomeco.slides : new Array(location.href);
@@ -992,7 +1094,6 @@ Util.Objects["carousel"] = new function() {
 				slide.updateSchedule();
 			}
 			else if(e.current_slide && typeof(e.current_slide.updateSchedule) == "function") {
-	//			u.bug("current")
 				e.current_slide.updateSchedule();
 			}
 			else {
